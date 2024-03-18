@@ -50,12 +50,12 @@ class TeethDataset(Dataset):
         return img
 
     def __getitem__(self, item):
-        raw_img = self.normalize(torch.tensor(np.array(Image.open(self.paths.iloc[item]['image']))))
+        row = self.paths.iloc[item]
+        raw_img = self.normalize(torch.tensor(np.array(Image.open(row['image']))))
         if raw_img.shape[-1] == 3:
             raw_img = raw_img[..., 0]
 
-        mask_path = self.paths.iloc[item]['mask']
-        print(mask_path)
+        mask_path = row['mask']
         if mask_path is None:
             mask = torch.zeros(raw_img.shape, dtype=torch.bool)
         else:
@@ -67,7 +67,9 @@ class TeethDataset(Dataset):
         img = self.blur(raw_img[None])[0]
         mask = self.img_resizer(mask[None])
 
-        return raw_img, img, mask
+        id_ = row['id']
+
+        return raw_img, img, mask, id_
 
 
 class TeethDataModule(pl.LightningDataModule):
@@ -134,25 +136,32 @@ class TeethDataModule(pl.LightningDataModule):
         val_cases = indices[index_1:index_2]
         test_cases = indices[index_2:]
 
-        self.train_data = TeethDataset(self.paths.iloc[train_cases])
-        self.val_data = TeethDataset(self.paths.iloc[val_cases])
-        self.test_data = TeethDataset(self.paths.iloc[test_cases])
-        print('Train length:', len(self.train_data))
-        print('Val length:', len(self.val_data))
-        print('Test length:', len(self.test_data))
-
         # Add no-mask images
 
         current_images_root = data_dir / "other"
         current_images = sorted(list(current_images_root.iterdir()))
         current_masks = [None for _ in current_images]
 
-        images, masks, duplicates = self.filter_duplicates(images + current_images, masks + current_masks)
+        _, _, duplicates = self.filter_duplicates(images + current_images, masks + current_masks)
         assert len(duplicates) == 0, 'Duplicates found'
-        self.predict_data = TeethDataset(pd.DataFrame({
+
+        predict_df = pd.DataFrame({
             'image': current_images,
             'mask': current_masks,
-        }))
+        })
+        self.paths =  pd.concat([self.paths, predict_df], ignore_index=True)
+        pred_cases = np.arange(len(self.paths) - len(predict_df), len(self.paths))
+
+        # Finally
+        self.paths['id'] = range(len(self.paths))
+
+        self.train_data = TeethDataset(self.paths.iloc[train_cases])
+        self.val_data = TeethDataset(self.paths.iloc[val_cases])
+        self.test_data = TeethDataset(self.paths.iloc[test_cases])
+        self.predict_data = TeethDataset(self.paths.iloc[pred_cases])
+        print('Train length:', len(self.train_data))
+        print('Val length:', len(self.val_data))
+        print('Test length:', len(self.test_data))
         print('Predict length:', len(self.predict_data))
 
     def __len__(self):
@@ -204,7 +213,7 @@ def main():
         save_next(fig, 'test')
         break
 
-    for raw_img, img, mask in dm.predict_dataloader():
+    for raw_img, img, mask, id_ in dm.predict_dataloader():
         fig, ax = plt.subplots()  # type: plt.Figure, plt.Axes
         print(raw_img.shape, img.shape, mask.shape)
         img = torch.stack([img[0, 0]] * 3, dim=-1) * 0.7

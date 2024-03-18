@@ -32,14 +32,14 @@ class BaseModel(pl.LightningModule):
         return self.internal(x)
 
     def predict_step(self, batch, batch_idx):
-        raw_img, img, mask = batch
+        raw_img, img, mask, id_ = batch
         pred_raw = self(img)
         pred = torch.sigmoid(pred_raw)
-        return raw_img, pred, mask
+        return raw_img, pred, mask, id_
 
     def training_step(self, batch, batch_idx):
         """ Train, occasionally calculate metrics, occasionally show figures"""
-        raw_img, img, mask = batch
+        raw_img, img, mask, id_ = batch
         pred_raw = self(img)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'train/loss', loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -49,14 +49,14 @@ class BaseModel(pl.LightningModule):
             dice_score = self.dice_score_fn(pred, mask)
             self.log(f'train/dice_score', dice_score, on_step=True, on_epoch=True, prog_bar=True)
 
-        if batch_idx % (self.dice_frequency * 10) == 0:
-            self.show_fig('train', raw_img, mask, pred, batch_idx)
+            if batch_idx % (self.dice_frequency * 10) == 0:
+                self.show_example('train', raw_img, mask, pred, batch_idx)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         """ Calculate metrics, show figures for 10 fixed images"""
-        raw_img, img, mask = batch
+        raw_img, img, mask, id_ = batch
         pred_raw = self(img)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'train/loss', loss, on_epoch=True)
@@ -66,11 +66,11 @@ class BaseModel(pl.LightningModule):
         self.log(f'val/dice_score', dice_score, on_epoch=True)
 
         if batch_idx <= 10:
-            self.show_fig('val', raw_img, mask, pred, batch_idx)
+            self.show_example('val', raw_img, mask, pred, batch_idx)
 
     def test_step(self, batch, batch_idx):
         """ Calculate metrics including custom metric, show figures for 10 fixed images"""
-        raw_img, img, mask = batch
+        raw_img, img, mask, id_ = batch
         pred_raw = self(img)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'test/loss', loss, on_epoch=True)
@@ -80,21 +80,30 @@ class BaseModel(pl.LightningModule):
         self.log(f'test/dice_score', dice_score, on_epoch=True)
 
         if batch_idx <= 10:
-            self.show_fig('test', raw_img, mask, pred, batch_idx)
+            self.show_example('test', raw_img, mask, pred, batch_idx)
 
         return loss
 
-    def show_fig(self, phase, img, mask, pred, batch_idx):
+    @staticmethod
+    def get_fig(img, mask, pred):
         """ Create and save figure with 2 images: original and prediction """
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
         img1 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         pred = pred.detach().cpu().numpy()
         img1[..., 0] += pred[0, 0] * 0.3
         ax1.imshow(img1)
+        ax1.set_title(f'Prediction')
         img2 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         img2[..., 0] += mask.detach().cpu().numpy()[0, 0] * 0.3
         ax2.imshow(img2)
-        fig.savefig(Path(self.logger.log_dir) / f'{self.name}_{phase}_epoch{self.current_epoch}_{batch_idx}.png')
+        ax2.set_title(f'Ground truth')
+        return fig
+
+    def show_example(self, phase, img, mask, pred, batch_idx):
+        """ Create and save figure with 2 images: original and prediction """
+        fig = self.get_fig(img, mask, pred)
+        fig.savefig(Path(self.logger.log_dir) / f'{self.name}_{phase}_epoch{self.current_epoch}_batch{batch_idx}.png')
+        plt.close(fig)
 
     def optimizer_zero_grad(self, epoch, batch_idx, optimizer):
         optimizer.zero_grad(set_to_none=True)
@@ -188,23 +197,42 @@ def main(args):
         trainer.test(model, dm)
 
     if args.predict:
-        dice_score = torchmetrics.Dice(zero_division=1)
+
+        # Save dataframe for later use
+        dm.train_data.paths.to_csv(out_dir / 'predictions' / 'train_paths.csv', index=False)
+        dm.val_data.paths.to_csv(out_dir / 'predictions' / 'val_paths.csv', index=False)
+        dm.test_data.paths.to_csv(out_dir / 'predictions' / 'test_paths.csv', index=False)
+        dm.predict_data.paths.to_csv(out_dir / 'predictions' / 'predict_paths.csv', index=False)
+
         for loader_name, loader in {
-            # 'val': dm.val_dataloader(batch_size=1),
-            # 'test': dm.test_dataloader(batch_size=1),
+            'val': dm.val_dataloader(batch_size=1),
+            'test': dm.test_dataloader(batch_size=1),
             'predict': dm.predict_dataloader(batch_size=1)
         }.items():
             (out_dir / 'predictions' / model.name / loader_name).mkdir(parents=True, exist_ok=True)
-            for i, (raw_img, pred, mask) in enumerate(
-                    trainer.predict(model, dataloaders=[loader], return_predictions=True)
-            ):
-                savemat(str(out_dir / 'predictions' / model.name / loader_name / f'{i}.mat'), {
-                    'raw_img': raw_img.numpy(),
-                    'pred': pred.numpy(),
-                    'mask': mask.float().numpy(),
-                    'dice_score': dice_score(pred, mask).item(),
-                })
-                model.show_fig('predict', raw_img, mask, pred, i)
-        # TODO save in numpy as well
-        # TODO map back to original paths
-        # TODO support ensemble mode
+            for raw_img, pred, mask, id_ in trainer.predict(model, dataloaders=[loader], return_predictions=True):
+                # Save in matlab format
+                savemat(
+                    str(out_dir / 'predictions' / model.name / loader_name / f'{id_}.mat'),
+                    {
+                        'raw_img': raw_img.numpy(),
+                        'pred': pred.numpy(),
+                        'mask': mask.float().numpy(),
+                        'id': id_,
+                    }
+                )
+                # Save as numpy
+                np.savez(
+                    str(out_dir / 'predictions' / model.name / loader_name / f'{id_}.npz'),
+                    raw_img=raw_img.numpy(),
+                    pred=pred.numpy(),
+                    mask=mask.float().numpy(),
+                    id=id_,
+                )
+
+                # Save as picture
+                fig = model.get_fig(raw_img, mask, pred)
+                fig.savefig(out_dir / 'predictions' / model.name / loader_name / f'{id_}.png')
+                plt.close(fig)
+
+        # TODO support ensemble mode (probably in next phase)
