@@ -1,0 +1,12 @@
+# Ignore: torch torchaudio torchvision (base image is frozen)
+matplotlib
+numpy
+scikit-image
+pandas
+gdown
+lightning
+tensorboard
+torchvision
+transformers
+gradio
+scipy

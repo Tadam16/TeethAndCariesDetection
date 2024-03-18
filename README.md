@@ -1,0 +1,141 @@
+# Dataset description
+
+- Adult tooth segmentation dataset
+    - Archive
+        - images
+            - 1.png - 116.png (images)
+        - mask
+            - 1.png - 116.png (masks)
+    - Dataset and code
+        - test
+            - annotations
+                - test.json
+            - images
+                - cate1-00001.jpg - cate1-00073.jpg
+                - cate2-00001.jpg - cate2-00220.jpg
+                - cate3-00001.jpg - cate3-00045.jpg
+                - cate4-00001.jpg - cate4-00140.jpg (total 478 images)
+            - masks
+                - cate1-00001.png - cate1-00073.png
+                - cate2-00001.bmp - cate2-00040.bmp
+                - cate2-00041.png - cate2-00100.png
+                - cate2-00101.bmp - cate2-00220.bmp
+                - cate3-00001.bmp - cate3-00045.bmp except cate3-00010.png, cate3-00011.png
+                - cate4-00001.png - cate4-00068.png except cate4-00001.bmp
+                - cate4-00069.bmp - cate4-00140.bmp (~ masks)
+            - masks_supplementary
+                - img
+                    - cate1-00001.png - cate1-00073.png
+                    - cate2-00041.png - cate2-00100.png
+                    - cate3-00010.png - cate2-00011.png
+                    - cate4-00002.png - cate4-00068.png (images, but corresponding to above png-s)
+                - mask
+                    - cate1-00001.png - cate1-00073.png
+                    - cate2-00041.png - cate2-00100.png
+                    - cate3-00010.png - cate2-00011.png
+                    - cate4-00002.png - cate4-00068.png (masks, ~)
+        - train
+            - annotations
+                - train.json
+            - images
+                - cate1-00001.jpg - cate1-00073.jpg
+                - cate2-00001.jpg - cate2-00220.jpg
+                - cate3-00001.jpg - cate3-00045.jpg
+                - cate4-00001.jpg - cate4-00140.jpg
+                - cate5-00001.jpg - cate5-00120.jpg
+                - cate6-00001.jpg - cate6-00170.jpg
+                - cate7-00001.jpg - cate7-00115.jpg
+                - cate8-00001.jpg - cate8-00457.jpg
+                - cate9-00001.jpg - cate9-00045.jpg
+                - cate10-00001.jpg - cate10-00115.jpg (images, superset of test)
+            - masks
+                - cate1-00001.bmp - cate1-00073.bmp
+                - cate2-00001.bmp - cate2-00220.bmp
+                - cate3-00001.bmp - cate3-00045.bmp
+                - cate4-00001.bmp - cate4-00140.bmp
+                - cate5-00001.bmp - cate5-00120.bmp
+                - cate6-00001.bmp - cate6-00170.bmp
+                - cate7-00001.bmp - cate7-00115.bmp
+                - cate8-00001.bmp - cate8-00457.bmp
+                - cate9-00001.bmp - cate9-00045.bmp
+                - cate10-00001.bmp - cate10-00115.bmp (masks, ~)
+    - Panoramic radiography database
+        - images
+            - 1.png - 598.png (images)
+        - mask
+            - 1.png - 598.png (masks)
+- Childrens dental caries segmentation dataset
+    - Supplemental content93
+        - images
+            - cate1-0000.png - cate1-0013.png
+            - cate2-0000.png - cate2-0013.png
+            - cate3-0000.png - cate3-0013.png
+            - cate4-0000.png - cate4-0013.png
+            - cate5-0000.png - cate5-0013.png
+            - cate6-0000.png - cate6-0013.png
+            - cate7-0000.png - cate7-0008.png except cate7-00008.jpg (total 93 images)
+        - mask
+            - cate1-0000_pseudo.png - cate1-0013_pseudo.png
+            - cate2-0000_pseudo.png - cate2-0013_pseudo.png
+            - cate3-0000_pseudo.png - cate3-0013_pseudo.png
+            - cate4-0000_pseudo.png - cate4-0013_pseudo.png
+            - cate5-0000_pseudo.png - cate5-0013_pseudo.png
+            - cate6-0000_pseudo.png - cate6-0013_pseudo.png
+            - cate7-0000_pseudo.png - cate7-0008_pseudo.png (~ masks)
+        - annotation.json
+    - Test
+        - images
+            - cate1-000.png - cate1-014.png
+            - cate2-000.png - cate2-014.png (total 28 images)
+        - mask
+            - cate1-000_pseudo.png - cate1-014_pseudo.png
+            - cate2-000_pseudo.png - cate2-014_pseudo.png (~ masks)
+        - annotation.json
+    - Train
+        - images
+            - cate1-000.png - cate1-013.png
+            - cate2-000.png - cate2-013.png
+            - cate3-000.png - cate3-013.png
+            - cate4-000.png - cate4-013.png
+            - cate5-000.png - cate5-013.png (total 70 images)
+        - mask
+            - cate1-000_pseudo.png - cate1-013_pseudo.png
+            - cate2-000_pseudo.png - cate2-013_pseudo.png
+            - cate3-000_pseudo.png - cate3-013_pseudo.png
+            - cate4-000_pseudo.png - cate4-013_pseudo.png
+            - cate5-000_pseudo.png - cate5-013_pseudo.png (~ masks)
+- Panoramic Dental Dataset
+    - annotations
+        - bbox_caries
+            - $.txt for 100 images with random ids, multiple boxes for each carie on full-size img
+        - bbox_teeth
+            - $.txt ~, multiple bboxes of each teeth on full-size img
+    - images
+        - $.png ~, images
+    - images_cut
+        - $.png ~, images focused on teeth
+    - labels
+        - $.png ~, masks
+    - labels_cut
+        - $.png ~, masks focused on teeth
+- Pediatric dental disease detection dataset
+    - Test
+        - images
+            - cate1-000.png - cate1-014.png
+            - cate2-000.png - cate2-014.png (total 28 images)
+        - label
+            - cate1-000.json - cate1-014.json
+            - cate2-000.json - cate2-014.json (~ masks)
+    - Train
+        - images
+            - cate1-000.png - cate1-013.png
+            - cate2-000.png - cate2-013.png
+            - cate3-000.png - cate3-013.png
+            - cate4-000.png - cate4-013.png
+            - cate5-000.png - cate5-013.png (total 70 images, different order from previous, but probably the same)
+        - mask
+            - cate1-000.json - cate1-013.json
+            - cate2-000.json - cate2-013.json
+            - cate3-000.json - cate3-013.json
+            - cate4-000.json - cate4-013.json
+            - cate5-000.json - cate5-013.json (~ masks)
