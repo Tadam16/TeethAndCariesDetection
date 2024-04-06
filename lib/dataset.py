@@ -137,14 +137,20 @@ class TeethDataModule(pl.LightningDataModule):
         test_cases = indices[index_2:]
 
         # Add no-mask images
+        current_images = []
 
+        # Add Panoramic Dental Dataset (no mask)
+        current_images_root = data_dir / "Panoramic Dental Dataset/images"
+        current_images.extend(current_images_root.iterdir())
+
+        # Add random test images (no mask)
         current_images_root = data_dir / "other"
-        current_images = sorted(list(current_images_root.iterdir()))
+        current_images.extend(current_images_root.iterdir())
+
+        current_images.sort()
         current_masks = [None for _ in current_images]
-
         _, _, duplicates = self.filter_duplicates(images + current_images, masks + current_masks)
-        assert len(duplicates) == 0, 'Duplicates found'
-
+        assert len(duplicates) == 0, f'Duplicates found: {duplicates}'
         predict_df = pd.DataFrame({
             'image': current_images,
             'mask': current_masks,

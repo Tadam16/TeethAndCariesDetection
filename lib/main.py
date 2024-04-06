@@ -18,7 +18,6 @@ def main():
     ap.add_argument('--train', action='store_true', default=False)
     ap.add_argument('--test', action='store_true', default=False)
     ap.add_argument('--predict', action='store_true', default=False)
-    ap.add_argument('--colab', action='store_true', default=False)
     args = ap.parse_args()
     print(args)
     if torch.cuda.is_available():

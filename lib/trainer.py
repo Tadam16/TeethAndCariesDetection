@@ -180,11 +180,11 @@ def main(args):
     else:
         model = Model()
 
-    dm = TeethDataModule(model.batch_size, 3 if args.colab else 1)
+    dm = TeethDataModule(model.batch_size, 1)
 
     trainer = pl.Trainer(
         log_every_n_steps=1,  # optimizer steps!
-        max_epochs=10,
+        max_epochs=20,
         deterministic=False,
         accumulate_grad_batches=model.accumulate_grad_batches,
         reload_dataloaders_every_n_epochs=1,
@@ -199,6 +199,7 @@ def main(args):
     if args.predict:
 
         # Save dataframe for later use
+        (out_dir / 'predictions').mkdir(parents=True, exist_ok=True)
         dm.train_data.paths.to_csv(out_dir / 'predictions' / 'train_paths.csv', index=False)
         dm.val_data.paths.to_csv(out_dir / 'predictions' / 'val_paths.csv', index=False)
         dm.test_data.paths.to_csv(out_dir / 'predictions' / 'test_paths.csv', index=False)
@@ -211,6 +212,8 @@ def main(args):
         }.items():
             (out_dir / 'predictions' / model.name / loader_name).mkdir(parents=True, exist_ok=True)
             for raw_img, pred, mask, id_ in trainer.predict(model, dataloaders=[loader], return_predictions=True):
+                id_ = id_.item()
+
                 # Save in matlab format
                 savemat(
                     str(out_dir / 'predictions' / model.name / loader_name / f'{id_}.mat'),
