@@ -139,3 +139,6 @@
             - cate3-000.json - cate3-013.json
             - cate4-000.json - cate4-013.json
             - cate5-000.json - cate5-013.json (~ masks)
+
+https://universe.roboflow.com/capstone-workspace/new-final-dataset-eqnh8
+https://universe.roboflow.com/arshs-workspace-radio/vzrad2

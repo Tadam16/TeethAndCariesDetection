@@ -1,15 +1,17 @@
+import argparse
 from pathlib import Path
+# import cv2
 
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from scipy.io import savemat
+from tqdm import tqdm
 
-import segformer
+import common.segformer as segformer
 from dataset import TeethDataModule
 import torch.utils.data
-from fancy_unet import Unet as FancyUnet
-from path_util import out_dir
+from common.fancy_unet import Unet as FancyUnet
+from common.path_util import presegment_out_dir, data_dir, rebase
 
 import torchmetrics
 import lightning.pytorch as pl
@@ -59,7 +61,7 @@ class BaseModel(pl.LightningModule):
         raw_img, img, mask, id_ = batch
         pred_raw = self(img)
         loss = self.loss_fn(pred_raw, mask.float())
-        self.log(f'train/loss', loss, on_epoch=True)
+        self.log(f'val/loss', loss, on_epoch=True)
 
         pred = torch.sigmoid(pred_raw)
         dice_score = self.dice_score_fn(pred, mask)
@@ -85,23 +87,23 @@ class BaseModel(pl.LightningModule):
         return loss
 
     @staticmethod
-    def get_fig(img, mask, pred):
-        """ Create and save figure with 2 images: original and prediction """
+    def get_fig(raw_img, mask, pred):
+        """ Create and save figure with 2 images: prediction adn ground truth"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-        img1 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
+        img1 = np.stack([raw_img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         pred = pred.detach().cpu().numpy()
         img1[..., 0] += pred[0, 0] * 0.3
         ax1.imshow(img1)
         ax1.set_title(f'Prediction')
-        img2 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
+        img2 = np.stack([raw_img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         img2[..., 0] += mask.detach().cpu().numpy()[0, 0] * 0.3
         ax2.imshow(img2)
         ax2.set_title(f'Ground truth')
         return fig
 
-    def show_example(self, phase, img, mask, pred, batch_idx):
+    def show_example(self, phase, raw_img, mask, pred, batch_idx):
         """ Create and save figure with 2 images: original and prediction """
-        fig = self.get_fig(img, mask, pred)
+        fig = self.get_fig(raw_img, mask, pred)
         fig.savefig(Path(self.logger.log_dir) / f'{self.name}_{phase}_epoch{self.current_epoch}_batch{batch_idx}.png')
         plt.close(fig)
 
@@ -162,12 +164,30 @@ class SegformerModel(BaseModel):
     def forward(self, x):
         x = torch.cat([x] * 3, dim=1)
         x = self.internal(x)[0]
-        x = torch.functional.F.interpolate(x, size=(384, 384), mode='bilinear')
+        x = torch.functional.F.interpolate(x, size=(384, 384), mode='bilinear')  # TODO move var out
         return x
 
 
-def main(args):
-    """ Create or load model, create data module and trainer, run training and testing """
+def main():
+    """ Entry point for the program.
+    Parses command line arguments and runs the appropriate function(s), including:
+    - Training the model
+    - Testing the model
+    - Predicting with the model
+    """
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--checkpoint', type=str, default=None)
+    ap.add_argument('--model', type=str, default='fancy_unet')
+    ap.add_argument('--train', action='store_true', default=False)
+    ap.add_argument('--test', action='store_true', default=False)
+    ap.add_argument('--predict', action='store_true', default=False)
+    args = ap.parse_args()
+    print(args)
+    if torch.cuda.is_available():
+        print('Using CUDA')
+
+    # dataset.main()
+
     if args.model == 'fancy_unet':
         Model = FancyUNetModel
     elif args.model == 'segformer':
@@ -188,7 +208,7 @@ def main(args):
         deterministic=False,
         accumulate_grad_batches=model.accumulate_grad_batches,
         reload_dataloaders_every_n_epochs=1,
-        logger=pl.loggers.TensorBoardLogger(out_dir),
+        logger=pl.loggers.TensorBoardLogger(presegment_out_dir),
     )
 
     if args.train:
@@ -197,45 +217,57 @@ def main(args):
         trainer.test(model, dm)
 
     if args.predict:
-
-        # Save dataframe for later use
-        (out_dir / 'predictions').mkdir(parents=True, exist_ok=True)
-        dm.train_data.paths.to_csv(out_dir / 'predictions' / 'train_paths.csv', index=False)
-        dm.val_data.paths.to_csv(out_dir / 'predictions' / 'val_paths.csv', index=False)
-        dm.test_data.paths.to_csv(out_dir / 'predictions' / 'test_paths.csv', index=False)
-        dm.predict_data.paths.to_csv(out_dir / 'predictions' / 'predict_paths.csv', index=False)
-
+        batch_size = 2
         for loader_name, loader in {
-            'val': dm.val_dataloader(batch_size=1),
-            'test': dm.test_dataloader(batch_size=1),
-            'predict': dm.predict_dataloader(batch_size=1)
+            'val': dm.val_dataloader(batch_size=batch_size),
+            'test': dm.test_dataloader(batch_size=batch_size),
+            'predict': dm.predict_dataloader(batch_size=batch_size),
         }.items():
-            (out_dir / 'predictions' / model.name / loader_name).mkdir(parents=True, exist_ok=True)
-            for raw_img, pred, mask, id_ in trainer.predict(model, dataloaders=[loader], return_predictions=True):
-                id_ = id_.item()
+            print('Predicting:', loader_name)
+            for batch in tqdm(loader):
+                raw_img, img, mask, id_ = batch
 
-                # Save in matlab format
-                savemat(
-                    str(out_dir / 'predictions' / model.name / loader_name / f'{id_}.mat'),
-                    {
-                        'raw_img': raw_img.numpy(),
-                        'pred': pred.numpy(),
-                        'mask': mask.float().numpy(),
-                        'id': id_,
-                    }
-                )
-                # Save as numpy
-                np.savez(
-                    str(out_dir / 'predictions' / model.name / loader_name / f'{id_}.npz'),
-                    raw_img=raw_img.numpy(),
-                    pred=pred.numpy(),
-                    mask=mask.float().numpy(),
-                    id=id_,
-                )
+                should_predict = False
+                for i in range(len(id_)):
+                    path = dm.paths[dm.paths['id'] == int(id_[i])]['image'].iloc[0]
 
-                # Save as picture
-                fig = model.get_fig(raw_img, mask, pred)
-                fig.savefig(out_dir / 'predictions' / model.name / loader_name / f'{id_}.png')
-                plt.close(fig)
+                    new_path = rebase(data_dir, presegment_out_dir / 'predictions' / model.name / loader_name, path)
 
-        # TODO support ensemble mode (probably in next phase)
+                    if not (new_path.parent / f'{new_path.stem}.npy').exists():
+                        should_predict = True
+
+                if should_predict:
+                    batch = model.transfer_batch_to_device(batch, model.device, ...)
+                    _, pred, _, _ = model.predict_step(batch, ...)
+                    pred = pred.detach().cpu()
+
+                    for i in range(len(id_)):
+                        path = dm.paths[dm.paths['id'] == int(id_[i])]['image'].iloc[0]
+
+                        new_path = rebase(data_dir, presegment_out_dir / 'predictions' / model.name / loader_name, path)
+                        new_path.parent.mkdir(parents=True, exist_ok=True)
+
+                        # TODO try with opencv
+                        # TODO add options
+                        # TODO coordinate between output formats
+                        # save_img = pred.numpy()[i]
+                        # save_img = np.stack([save_img] * 3, axis=-1)
+                        # save_img = save_img.transpose(2, 1, 0) * 255.0
+                        # Save as npz
+                        # cv2.imwrite(
+                        #     str(new_path.parent / f'{new_path.stem}.png'),
+                        #     save_img,
+                        # )
+                        np.save(
+                            str(new_path.parent / f'{new_path.stem}.npy'),
+                            pred.numpy()[i, 0],
+                        )
+
+                        # # Save as picture
+                        # fig = model.get_fig(raw_img, mask, pred)
+                        # fig.savefig(new_path.parent / f'{new_path.stem}.png')
+                        # plt.close(fig)
+
+
+if __name__ == '__main__':
+    main()

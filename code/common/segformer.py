@@ -10,7 +10,7 @@ def get_model():
         return_dict=False,
         num_labels=1,
         ignore_mismatched_sizes=True,
-        cache_dir='/out/segformer_cache'
+        cache_dir='/cache/segformer_cache'
     )
 
     return model

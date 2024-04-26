@@ -1,4 +1,4 @@
-from path_util import out_dir
+from common.path_util import out_dir
 
 fig_num = 0
 

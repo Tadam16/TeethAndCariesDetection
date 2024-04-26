@@ -3,10 +3,10 @@ matplotlib
 numpy
 scikit-image
 pandas
-gdown
 lightning
 tensorboard
 torchvision
 transformers
-gradio
 scipy
+pycocotools
+opencv-python

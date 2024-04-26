@@ -9,3 +9,6 @@ RUN pip install -U pip
 RUN pip install -r requirements.txt
 
 RUN pip freeze # for freezing requirements.txt
+
+ENV PYTHONPATH=/code:$PYTHONPATH
+EXPOSE 6006

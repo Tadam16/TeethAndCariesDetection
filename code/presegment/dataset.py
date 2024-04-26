@@ -1,9 +1,7 @@
 import hashlib
-import os
 
 import numpy as np
 import torchvision
-from lightning.pytorch.utilities.types import EVAL_DATALOADERS
 from matplotlib import pyplot as plt
 from pandas import DataFrame
 from torch.utils.data import Dataset, DataLoader
@@ -12,36 +10,44 @@ import pandas as pd
 from PIL import Image
 from torchvision.transforms import transforms
 
-from path_util import data_dir
-from plot_util import save_next
+from common.path_util import data_dir
+from common.plot_util import save_next
 import lightning.pytorch as pl
 
 
 class TeethDataset(Dataset):
     """ Segmentation dataset """
 
-    def __init__(self, paths: DataFrame):
-        self.size = (384, 384)
+    def __init__(
+            self,
+            paths: DataFrame,
+            size=(384, 384),
+            blur_kernel_size=51,
+            blur_sigma=0.5,
+            normalize_top_bottom=0.03,
+    ):
+        self.size = size
         self.img_resizer = torchvision.transforms.Resize(size=self.size)
         self.mask_resizer = torchvision.transforms.Resize(
             size=self.size,
             interpolation=torchvision.transforms.InterpolationMode.NEAREST
         )
-        self.blur = transforms.GaussianBlur(51, 0.5)
+        self.blur = transforms.GaussianBlur(blur_kernel_size, blur_sigma)
+
+        self.normalize_top_bottom = normalize_top_bottom
 
         self.paths = paths
 
     def __len__(self):
         return len(self.paths)
 
-    @staticmethod
-    def normalize(img):
+    def normalize(self, img):
         """ Normalize image.
-        This includes removing the top and bottom 3% of intensities for burn-in and burn-out correction.
+        This includes removing the top and bottom x% of intensities for burn-in and burn-out correction.
         """
         intensities = torch.flatten(img)
         intensities = torch.sort(intensities).values
-        idx = int(intensities.size(0) / 30)
+        idx = int(intensities.size(0) * self.normalize_top_bottom)
         newmin = intensities[idx]
         newmax = intensities[-idx]
         img = (img - newmin) / (newmax - newmin)
@@ -103,10 +109,12 @@ class TeethDataModule(pl.LightningDataModule):
         images = []
         masks = []
 
-        # Adult tooth segmentation / train
+        # Add labelled data
 
-        current_images_root = data_dir / "Adult tooth segmentation dataset/Dataset and code/train/images"
-        current_masks_root = data_dir / "Adult tooth segmentation dataset/Dataset and code/train/masks"
+        ## Adult tooth segmentation / train
+
+        current_images_root = data_dir / "Adult tooth segmentation dataset" / "Dataset and code" / "train" / "images"
+        current_masks_root = data_dir / "Adult tooth segmentation dataset" / "Dataset and code" / "train" / "masks"
 
         current_images = sorted(list(current_images_root.iterdir()))
         current_masks = [current_masks_root / (img.stem + '.bmp') for img in current_images]
@@ -115,16 +123,21 @@ class TeethDataModule(pl.LightningDataModule):
 
         # TODO include other sets as well
 
+        # Deduplicate
+
         images, masks, duplicates = self.filter_duplicates(images, masks)
         print('Duplicates:')
         for d in duplicates:
             print(d)
+        print('End of duplicates')
 
         self.paths = pd.DataFrame({
             'image': images,
             'mask': masks,
         })
         print(self.paths)
+
+        # Split cases
 
         indices = np.arange(len(self.paths))
 
@@ -136,26 +149,30 @@ class TeethDataModule(pl.LightningDataModule):
         val_cases = indices[index_1:index_2]
         test_cases = indices[index_2:]
 
-        # Add no-mask images
+        # Add unlabelled data
         current_images = []
 
-        # Add Panoramic Dental Dataset (no mask)
-        current_images_root = data_dir / "Panoramic Dental Dataset/images"
+        ## Add Panoramic Dental Dataset (no mask)
+        current_images_root = data_dir / "Panoramic Dental Dataset" / "images"
         current_images.extend(current_images_root.iterdir())
 
-        # Add random test images (no mask)
-        current_images_root = data_dir / "other"
+        ## Add random test images (no mask)
+        current_images_root = data_dir / "Other"
         current_images.extend(current_images_root.iterdir())
+
+        ## Add Roboflow images (no mask)
+        current_images_root = data_dir / "Roboflow"
+        current_images.extend(current_images_root.glob('**/*.jpg'))
 
         current_images.sort()
         current_masks = [None for _ in current_images]
         _, _, duplicates = self.filter_duplicates(images + current_images, masks + current_masks)
-        assert len(duplicates) == 0, f'Duplicates found: {duplicates}'
+        print(f'Duplicates found in prediction set:', len(duplicates))
         predict_df = pd.DataFrame({
             'image': current_images,
             'mask': current_masks,
         })
-        self.paths =  pd.concat([self.paths, predict_df], ignore_index=True)
+        self.paths = pd.concat([self.paths, predict_df], ignore_index=True)
         pred_cases = np.arange(len(self.paths) - len(predict_df), len(self.paths))
 
         # Finally
@@ -198,7 +215,7 @@ class TeethDataModule(pl.LightningDataModule):
     def predict_dataloader(self, batch_size: int = None):
         return DataLoader(
             self.predict_data,
-            batch_size=1,
+            batch_size=1 if batch_size is None else batch_size,
             num_workers=self.num_workers,
         )
 
@@ -210,20 +227,15 @@ def main():
 
     print('Dataset length:', len(dm))
 
-    for raw_img, img, mask in dm.test_dataloader():
+    for raw_img, img, mask, id_ in dm.test_dataloader():
         fig, ax = plt.subplots()  # type: plt.Figure, plt.Axes
         print(raw_img.shape, img.shape, mask.shape)
         img = torch.stack([img[0, 0]] * 3, dim=-1) * 0.7
         img[..., 0] += mask[0, 0] * 0.3
         ax.imshow(img)
-        save_next(fig, 'test')
+        save_next(fig, 'test_segment', with_fig_num=False)
         break
 
-    for raw_img, img, mask, id_ in dm.predict_dataloader():
-        fig, ax = plt.subplots()  # type: plt.Figure, plt.Axes
-        print(raw_img.shape, img.shape, mask.shape)
-        img = torch.stack([img[0, 0]] * 3, dim=-1) * 0.7
-        img[..., 0] += mask[0, 0] * 0.3
-        ax.imshow(img)
-        save_next(fig, 'predict')
-        break
+
+if __name__ == '__main__':
+    main()
