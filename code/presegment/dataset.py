@@ -71,7 +71,7 @@ class TeethDataset(Dataset):
 
         raw_img = self.img_resizer(raw_img[None])
         img = self.blur(raw_img[None])[0]
-        mask = self.img_resizer(mask[None])
+        mask = self.img_resizer(mask[None]) # TODO why does this work
 
         id_ = row['id']
 

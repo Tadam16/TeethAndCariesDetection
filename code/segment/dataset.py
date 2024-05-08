@@ -16,6 +16,8 @@ from common.path_util import data_dir, presegment_out_dir, preprocess_out_dir, r
 from common.plot_util import save_next
 import lightning.pytorch as pl
 
+from roboflow_preprocess.filter import BoundingBox
+
 
 class CariesDataset(Dataset):
     """ Segmentation dataset """
@@ -74,13 +76,27 @@ class CariesDataset(Dataset):
         fancy_unet_pred = torch.tensor(np.load(row['fancy_unet_pred']))
         segformer_pred = torch.tensor(np.load(row['segformer_pred']))
 
+        if row['bbox'] is not None:
+            bbox = BoundingBox.json_to_list(row['bbox'])
+
+            mask = mask[bbox[0]:bbox[1], bbox[2]:bbox[3]]
+            raw_img = raw_img[bbox[0]:bbox[1], bbox[2]:bbox[3]]
+
+            rows, columns = raw_img.shape
+            pred_rows, pred_columns = fancy_unet_pred.shape
+            fancy_unet_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
+            fancy_unet_pred = fancy_unet_pred[fancy_unet_box[0]:fancy_unet_box[1], fancy_unet_box[2]:fancy_unet_box[3]]
+            pred_rows, pred_columns = segformer_pred.shape
+            segformer_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
+            segformer_pred = segformer_pred[segformer_box[0]:segformer_box[1], segformer_box[2]:segformer_box[3]]
+
         raw_img = self.img_resizer(raw_img[None])
-        fany_unet_pred = self.img_resizer(fancy_unet_pred[None])
+        fancy_unet_pred = self.img_resizer(fancy_unet_pred[None])
         segformer_pred = self.img_resizer(segformer_pred[None])
         img = self.blur(raw_img[None])[0]
         mask = self.img_resizer(mask[None])
 
-        return raw_img, fany_unet_pred, segformer_pred, img, mask
+        return raw_img, fancy_unet_pred, segformer_pred, img, mask
 
 
 class CariesDataModule(pl.LightningDataModule):
@@ -117,6 +133,7 @@ class CariesDataModule(pl.LightningDataModule):
 
         images = []
         masks = []
+        bboxes = []
 
         # Add labelled data
 
@@ -129,6 +146,7 @@ class CariesDataModule(pl.LightningDataModule):
         current_masks = [current_masks_root / img.name for img in current_images]
         images.extend(current_images)
         masks.extend(current_masks)
+        bboxes.extend([None] * len(current_images))
 
         ## Roboflow datasets
 
@@ -136,9 +154,21 @@ class CariesDataModule(pl.LightningDataModule):
         current_masks_root = preprocess_out_dir / 'Roboflow'
 
         def get_current_masks_and_images():
-            with open('/out/preprocess/filter/result.yaml') as f:
-                non_augmented = {
-                    it['path']
+            with open('/out/preprocess/filter/train.yaml') as f:
+                non_augmented_train = {
+                    it['path']: it['bbox']
+                    for it
+                    in yaml.load(f, Loader=yaml.FullLoader)
+                }
+            with open('/out/preprocess/filter/valid.yaml') as f:
+                valid = {
+                    it['path']: it['bbox']
+                    for it
+                    in yaml.load(f, Loader=yaml.FullLoader)
+                }
+            with open('/out/preprocess/filter/test.yaml') as f:
+                test = {
+                    it['path']: it['bbox']
                     for it
                     in yaml.load(f, Loader=yaml.FullLoader)
                 }
@@ -147,8 +177,9 @@ class CariesDataModule(pl.LightningDataModule):
             images = [rebase(current_masks_root, current_images_root, mask).parent / f'{mask.stem}.jpg'
                       for mask in masks]
 
-            result_masks, result_images = [], []
+            result_masks, result_images, result_bboxes = [], [], []
             for mask, image in zip(masks, images):
+                bbox = None
                 if not image.exists():
                     print(f'Image {image} does not exist')
                     continue
@@ -156,20 +187,31 @@ class CariesDataModule(pl.LightningDataModule):
                     print(f'Mask {mask} does not exist')
                     continue
                 if image.parent.name == 'train':
-                    if str(image) not in non_augmented:
+                    if str(image) in non_augmented_train:
+                        bbox = non_augmented_train[str(image)]
+                        assert bbox is not None
+                    else:
                         continue
+                if image.parent.name == 'valid':
+                    if str(image) in valid:
+                        bbox = valid[str(image)]
+                if image.parent.name == 'test':
+                    if str(image) in test:
+                        bbox = test[str(image)]
                 result_images.append(image)
                 result_masks.append(mask)
+                result_bboxes.append(bbox)
 
-            return result_images, result_masks
+            return result_images, result_masks, result_bboxes
 
-        current_images, current_masks = get_current_masks_and_images()
+        current_images, current_masks, current_bboxes = get_current_masks_and_images()
         images.extend(current_images)
         masks.extend(current_masks)
+        bboxes.extend(current_bboxes)
 
         # Deduplicate
 
-        images, duplicates, masks = self.filter_duplicates(images, masks)
+        images, duplicates, masks, bboxes = self.filter_duplicates(images, masks, bboxes)
         print('Duplicates:')
         for d in duplicates:
             print(d)
@@ -178,6 +220,7 @@ class CariesDataModule(pl.LightningDataModule):
         self.paths = pd.DataFrame({
             'image': images,
             'mask': masks,
+            'bbox': bboxes,
         })
 
         # Add presegmentations to the dataset
@@ -250,24 +293,29 @@ def main():
 
     print('Dataset length:', len(dm))
 
-    for raw_img, fany_unet_pred, segformer_pred, img, mask in dm.test_dataloader():
+    for i, (raw_img, fancy_unet_pred, segformer_pred, img, mask) in enumerate(dm.test_dataloader()):
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(30, 10))
 
         img1 = np.stack([raw_img.detach().cpu().numpy()[0, 0]] * 3, axis=-1)
         ax1.imshow(img1)
         ax2.set_title(f'Raw')
 
-        img2 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1)
+        img2 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
+        img2[..., 1] += fancy_unet_pred.detach().cpu().numpy()[0, 0] * 0.3
+        img2[..., 2] += segformer_pred.detach().cpu().numpy()[0, 0] * 0.3
         ax2.imshow(img2)
-        ax2.set_title(f'Blurred')
+        ax2.set_title(f'Input')
 
         img3 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         img3[..., 0] += mask.detach().cpu().numpy()[0, 0] * 0.3
         ax3.imshow(img3)
         ax3.set_title(f'Ground truth')
 
-        save_next(fig, 'test_segment', with_fig_num=False)
-        break
+        save_next(fig, 'test_segment')
+        plt.close(fig)
+
+        if i == 50:
+            break
 
 
 if __name__ == '__main__':

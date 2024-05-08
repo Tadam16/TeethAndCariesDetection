@@ -8,8 +8,6 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from common.path_util import rebase
-
 
 @dataclass
 class BoundingBox:
@@ -32,6 +30,15 @@ class BoundingBox:
             'last_col': self.last_col,
             # 'image_shape': self.image_shape,
         }
+
+    @staticmethod
+    def json_to_list(json):
+        return [
+            json['first_row'],
+            json['last_row'],
+            json['first_col'],
+            json['last_col'],
+        ]
 
 
 bboxes = {}
@@ -141,21 +148,42 @@ def dedupliate(pair: list[Path]):
 
 
 def main():
-    pairs = find_pairs(list(Path('/data/Roboflow/New Final Dataset').glob('**/train/*.jpg')))
+    # Find and filter augmentations
+    #
+    # pairs = find_pairs(list(Path('/data/Roboflow/New Final Dataset').glob('**/train/*.jpg')))
+    # result = []
+    # for i, pair in enumerate(tqdm(pairs)):
+    #     original = dedupliate(pair)
+    #     result.append({
+    #         'path': str(original),
+    #         'bbox': get_bounding_box(original).to_json()
+    #     })
+    #
+    #     # new_path = rebase(Path('/data'), f'/out/preprocess/filter', original)
+    #     # new_path.parent.mkdir(parents=True, exist_ok=True)
+    #     # new_path.write_bytes(original.read_bytes())
+    #
+    # with open('/out/preprocess/filter/train.yaml', 'w') as f:
+    #     yaml.dump(result, f)
+
     result = []
-    for i, pair in enumerate(tqdm(pairs)):
-        original = dedupliate(pair)
+    for path in Path('/data/Roboflow/New Final Dataset').glob('**/valid/*.jpg'):
         result.append({
-            'path': str(original),
-            'bbox': get_bounding_box(original).to_json()
+            'path': str(path),
+            'bbox': get_bounding_box(path).to_json()
         })
-
-        # new_path = rebase(Path('/data'), f'/out/preprocess/filter', original)
-        # new_path.parent.mkdir(parents=True, exist_ok=True)
-        # new_path.write_bytes(original.read_bytes())
-
-    with open('/out/preprocess/filter/result.yaml', 'w') as f:
+    with open('/out/preprocess/filter/valid.yaml', 'w') as f:
         yaml.dump(result, f)
+
+    result = []
+    for path in Path('/data/Roboflow/New Final Dataset').glob('**/test/*.jpg'):
+        result.append({
+            'path': str(path),
+            'bbox': get_bounding_box(path).to_json()
+        })
+    with open('/out/preprocess/filter/test.yaml', 'w') as f:
+        yaml.dump(result, f)
+
 
 
 if __name__ == '__main__':

@@ -37,31 +37,36 @@ class BaseModel(pl.LightningModule):
         intersection = (pred * mask).sum()
         return (2. * intersection) / (pred.sum() + mask.sum() + eps)
 
+    @staticmethod
     def hausdorff(preds, gts):
         dsts = []
+        num_inf = 0
         for i in range(preds.shape[0]):
             pred = preds[i,0]
             gt = gts[i,0]
             pred_coords = np.stack(np.where(pred > 0.5), -1)
-            gt_coords = np.stack(np.where(gt > 0.5), -1)
+            gt_coords = np.stack(np.where(gt), -1)
             dist = max(directed_hausdorff(pred_coords, gt_coords)[0], directed_hausdorff(gt_coords, pred_coords)[0])
-            dsts.append(dist)
-        return np.array(dsts)
+            if np.isinf(dist):
+                num_inf += 1
+            else:
+                dsts.append(dist)
+        return torch.tensor(np.array(dsts)), num_inf
 
     def forward(self, x):
         return self.internal(x)
 
     def predict_step(self, batch, batch_idx):
-        raw_img, fany_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fany_unet_pred, segformer_pred), dim=1)
+        raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
+        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         pred = torch.sigmoid(pred_raw)
-        return raw_img, pred, fany_unet_pred, segformer_pred, img, mask
+        return raw_img, pred, fancy_unet_pred, segformer_pred, img, mask
 
     def training_step(self, batch, batch_idx):
         """ Train, occasionally calculate metrics, occasionally show figures"""
-        raw_img, fany_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fany_unet_pred, segformer_pred), dim=1)
+        raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
+        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'train/loss', loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -72,14 +77,14 @@ class BaseModel(pl.LightningModule):
             self.log(f'train/dice_score', dice_score, on_step=True, on_epoch=True, prog_bar=True)
 
             if batch_idx % (self.dice_frequency * 10) == 0:
-                self.show_example('train', raw_img, fany_unet_pred, segformer_pred, mask, pred, batch_idx)
+                self.show_example('train', raw_img, fancy_unet_pred, segformer_pred, mask, pred, batch_idx)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         """ Calculate metrics, show figures for 10 fixed images"""
-        raw_img, fany_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fany_unet_pred, segformer_pred), dim=1)
+        raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
+        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'val/loss', loss, on_epoch=True)
@@ -89,37 +94,39 @@ class BaseModel(pl.LightningModule):
         self.log(f'val/dice_score', dice_score, on_epoch=True)
 
         if batch_idx <= 10:
-            self.show_example('val', raw_img, fany_unet_pred, segformer_pred, mask, pred, batch_idx)
+            self.show_example('val', raw_img, fancy_unet_pred, segformer_pred, mask, pred, batch_idx)
 
     def test_step(self, batch, batch_idx):
         """ Calculate metrics including custom metric, show figures for 10 fixed images"""
-        raw_img, fany_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fany_unet_pred, segformer_pred), dim=1)
+        raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
+        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'test/loss', loss, on_epoch=True)
 
         pred = torch.sigmoid(pred_raw)
         dice_score = self.dice_score_fn(pred, mask)
-        hausdorff_distance = self.hausdorff(pred.detach().cpu().numpy(), mask.detach().cpu().numpy())
+        hausdorff_distance, num_inf = self.hausdorff(pred.detach().cpu().numpy(), mask.detach().cpu().numpy())
         self.log(f'test/dice_score', dice_score, on_epoch=True)
-        self.log(f'test/hausdorff_distance', hausdorff_distance, on_epoch=True)
+        if hausdorff_distance.shape[0] > 0:
+            self.log(f'test/hausdorff_distance', hausdorff_distance, on_epoch=True)
+        self.log(f'test/hausdorff_distance_inf', num_inf, on_epoch=True, reduce_fx='sum')
 
         if batch_idx <= 10:
-            self.show_example('test', raw_img, fany_unet_pred, segformer_pred, mask, pred, batch_idx)
+            self.show_example('test', raw_img, fancy_unet_pred, segformer_pred, mask, pred, batch_idx)
 
         return loss
 
     @staticmethod
-    def get_fig(img, fany_unet_pred, segformer_pred, mask, pred):
+    def get_fig(img, fancy_unet_pred, segformer_pred, mask, pred):
         """ Create and save figure with 3 images: input, prediction and ground truth """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(30, 10))
 
         img1 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
-        img1[..., 1] += fany_unet_pred.detach().cpu().numpy()[0, 0] * 0.3
+        img1[..., 1] += fancy_unet_pred.detach().cpu().numpy()[0, 0] * 0.3
         img1[..., 2] += segformer_pred.detach().cpu().numpy()[0, 0] * 0.3
         ax1.imshow(img1)
-        ax2.set_title(f'Input')
+        ax1.set_title(f'Input')
 
         img2 = np.stack([img.detach().cpu().numpy()[0, 0]] * 3, axis=-1) * 0.7
         pred = pred.detach().cpu().numpy()
@@ -133,9 +140,9 @@ class BaseModel(pl.LightningModule):
         ax3.set_title(f'Ground truth')
         return fig
 
-    def show_example(self, phase, raw_img, fany_unet_pred, segformer_pred, mask, pred, batch_idx):
+    def show_example(self, phase, raw_img, fancy_unet_pred, segformer_pred, mask, pred, batch_idx):
         """ Create and save figure with 2 images: original and prediction """
-        fig = self.get_fig(raw_img, fany_unet_pred, segformer_pred, mask, pred)
+        fig = self.get_fig(raw_img, fancy_unet_pred, segformer_pred, mask, pred)
         fig.savefig(Path(self.logger.log_dir) / f'{self.name}_{phase}_epoch{self.current_epoch}_batch{batch_idx}.png')
         plt.close(fig)
 
