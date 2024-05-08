@@ -16,8 +16,8 @@ for raw_img, fany_unet_pred, segformer_pred, img, mask in dm.test_dataloader():
     segformer_ratios.append(segformer_ratio.detach().cpu().numpy())
     total_ratios.append(total_ratio.detach().cpu().numpy())
 
-unet_coverage = np.array(unet_ratios)
-segformer_coverage = np.array(segformer_ratios)
-total_coverage = np.array(total_ratios)
+unet_coverage = np.array(unet_ratios).mean()
+segformer_coverage = np.array(segformer_ratios).mean()
+total_coverage = np.array(total_ratios).mean()
 
-print(f"Unet caries coverage: {unet_coverage}\nSegformer caries coverage: {segformer_coverage}\nTotal caries coverage: {total_coverage}")
+print(f"Unet caries coverage: {unet_coverage}\nSegformer caries coverage: {segformer_coverage}\nTotal caries coverage: {total_coverage}\n")
