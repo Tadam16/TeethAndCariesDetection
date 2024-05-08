@@ -14,6 +14,7 @@ from common.path_util import segment_out_dir
 
 import torchmetrics
 import lightning.pytorch as pl
+from scipy.spatial.distance import directed_hausdorff
 
 
 class BaseModel(pl.LightningModule):
@@ -35,6 +36,17 @@ class BaseModel(pl.LightningModule):
         mask = mask.view(-1)
         intersection = (pred * mask).sum()
         return (2. * intersection) / (pred.sum() + mask.sum() + eps)
+
+    def hausdorff(preds, gts):
+        dsts = []
+        for i in range(preds.shape[0]):
+            pred = preds[i,0]
+            gt = gts[i,0]
+            pred_coords = np.stack(np.where(pred > 0.5), -1)
+            gt_coords = np.stack(np.where(gt > 0.5), -1)
+            dist = max(directed_hausdorff(pred_coords, gt_coords)[0], directed_hausdorff(gt_coords, pred_coords)[0])
+            dsts.append(dist)
+        return np.array(dsts)
 
     def forward(self, x):
         return self.internal(x)
@@ -89,7 +101,9 @@ class BaseModel(pl.LightningModule):
 
         pred = torch.sigmoid(pred_raw)
         dice_score = self.dice_score_fn(pred, mask)
+        hausdorff_distance = self.hausdorff(pred.detach().cpu().numpy(), mask.detach().cpu().numpy())
         self.log(f'test/dice_score', dice_score, on_epoch=True)
+        self.log(f'test/hausdorff_distance', hausdorff_distance, on_epoch=True)
 
         if batch_idx <= 10:
             self.show_example('test', raw_img, fany_unet_pred, segformer_pred, mask, pred, batch_idx)
