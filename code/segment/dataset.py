@@ -79,15 +79,18 @@ class CariesDataset(Dataset):
         if row['bbox'] is not None:
             bbox = BoundingBox.json_to_list(row['bbox'])
 
+            rows, columns = raw_img.shape
             mask = mask[bbox[0]:bbox[1], bbox[2]:bbox[3]]
             raw_img = raw_img[bbox[0]:bbox[1], bbox[2]:bbox[3]]
 
-            rows, columns = raw_img.shape
             pred_rows, pred_columns = fancy_unet_pred.shape
-            fancy_unet_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
+            fancy_unet_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(
+                bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
             fancy_unet_pred = fancy_unet_pred[fancy_unet_box[0]:fancy_unet_box[1], fancy_unet_box[2]:fancy_unet_box[3]]
+
             pred_rows, pred_columns = segformer_pred.shape
-            segformer_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
+            segformer_box = int(bbox[0] * pred_rows / rows), int(bbox[1] * pred_rows / rows), int(
+                bbox[2] * pred_columns / columns), int(bbox[3] * pred_columns / columns)
             segformer_pred = segformer_pred[segformer_box[0]:segformer_box[1], segformer_box[2]:segformer_box[3]]
 
         raw_img = self.img_resizer(raw_img[None])
@@ -154,12 +157,12 @@ class CariesDataModule(pl.LightningDataModule):
         current_masks_root = preprocess_out_dir / 'Roboflow'
 
         def get_current_masks_and_images():
-            with open('/out/preprocess/filter/train.yaml') as f:
-                non_augmented_train = {
-                    it['path']: it['bbox']
-                    for it
-                    in yaml.load(f, Loader=yaml.FullLoader)
-                }
+            # with open('/out/preprocess/filter/train.yaml') as f:
+            #     non_augmented_train = {
+            #         it['path']: it['bbox']
+            #         for it
+            #         in yaml.load(f, Loader=yaml.FullLoader)
+            #     }
             with open('/out/preprocess/filter/valid.yaml') as f:
                 valid = {
                     it['path']: it['bbox']
@@ -187,11 +190,11 @@ class CariesDataModule(pl.LightningDataModule):
                     print(f'Mask {mask} does not exist')
                     continue
                 if image.parent.name == 'train':
-                    if str(image) in non_augmented_train:
-                        bbox = non_augmented_train[str(image)]
-                        assert bbox is not None
-                    else:
-                        continue
+                    # if str(image) in non_augmented_train:
+                    #     bbox = non_augmented_train[str(image)]
+                    #     assert bbox is not None
+                    # else:
+                    continue
                 if image.parent.name == 'valid':
                     if str(image) in valid:
                         bbox = valid[str(image)]
@@ -314,7 +317,7 @@ def main():
         save_next(fig, 'test_segment')
         plt.close(fig)
 
-        if i == 50:
+        if i == 10:
             break
 
 
