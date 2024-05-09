@@ -12,6 +12,10 @@ dm.setup('fit')
 unet_ratios = []
 segformer_ratios = []
 total_ratios = []
+teeth_ratio_unet = []
+teeth_ratio_segformer = []
+teeth_ratio_total = []
+
 num_bad_predictions = 0
 for raw_img, fancy_unet_pred, segformer_pred, img, mask in tqdm(dm.test_dataloader()):
     fancy_unet_pred= fancy_unet_pred >= 0.5
@@ -22,6 +26,10 @@ for raw_img, fancy_unet_pred, segformer_pred, img, mask in tqdm(dm.test_dataload
     unet_ratios.append(unet_ratio.detach().cpu().numpy())
     segformer_ratios.append(segformer_ratio.detach().cpu().numpy())
     total_ratios.append(total_ratio.detach().cpu().numpy())
+
+    teeth_ratio_unet.append(fancy_unet_pred.sum().detach().cpu().numpy() / np.prod(img.shape))
+    teeth_ratio_segformer.append(segformer_pred.sum().detach().cpu().numpy() / np.prod(img.shape))
+    teeth_ratio_total.append(torch.maximum(segformer_pred, fancy_unet_pred).sum().detach().cpu().numpy() / np.prod(img.shape))
 
     if total_ratio < 0.3:
         num_bad_predictions += 1
@@ -47,8 +55,15 @@ unet_coverage = np.array(unet_ratios).mean()
 segformer_coverage = np.array(segformer_ratios).mean()
 total_coverage = np.array(total_ratios).mean()
 
+teeth_unet_coverage = np.array(teeth_ratio_unet).mean()
+teeth_seg_coverage = np.array(teeth_ratio_segformer).mean()
+teeth_total_coverage = np.array(teeth_ratio_total).mean()
+
 print(f"Unet caries coverage: {unet_coverage}")
 print(f"Segformer caries coverage: {segformer_coverage}")
 print(f"Total caries coverage: {total_coverage}")
 print(f"Bad predictions: {num_bad_predictions}")
 print(f"Bad prediction ratio: {num_bad_predictions / len(dm.test_dataloader())}")
+print(f"Teeth unet:{teeth_unet_coverage}")
+print(f"Teeth segformer:{teeth_seg_coverage}")
+print(f"Teeth total:{teeth_total_coverage}")
