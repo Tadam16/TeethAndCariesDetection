@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 import common.segformer as segformer
-from dataset import TeethDataModule
+from presegment.dataset import TeethDataModule
 import torch.utils.data
 from common.fancy_unet import Unet as FancyUnet
 from common.path_util import presegment_out_dir, data_dir, rebase
@@ -217,7 +217,7 @@ def main():
         trainer.test(model, dm)
 
     if args.predict:
-        batch_size = 2
+        batch_size = 1
         for loader_name, loader in {
             'val': dm.val_dataloader(batch_size=batch_size),
             'test': dm.test_dataloader(batch_size=batch_size),

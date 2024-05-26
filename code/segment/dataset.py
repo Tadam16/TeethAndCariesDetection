@@ -25,7 +25,7 @@ class CariesDataset(Dataset):
     def __init__(
             self,
             paths: DataFrame,
-            size=(384, 384),
+            size,
             blur_kernel_size=51,
             blur_sigma=0.5,
             normalize_top_bottom=0.03,
@@ -129,10 +129,11 @@ class CariesDataModule(pl.LightningDataModule):
             *(list(it) for it in zip(*result_other_data))
         )
 
-    def __init__(self, batch_size, num_workers):
+    def __init__(self, batch_size, num_workers, image_size=(384,384)):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.image_size = image_size
 
         images = []
         masks = []
@@ -256,9 +257,9 @@ class CariesDataModule(pl.LightningDataModule):
 
         # Finally
 
-        self.train_data = CariesDataset(self.paths.iloc[train_cases])
-        self.val_data = CariesDataset(self.paths.iloc[val_cases])
-        self.test_data = CariesDataset(self.paths.iloc[test_cases])
+        self.train_data = CariesDataset(self.paths.iloc[train_cases], size=image_size)
+        self.val_data = CariesDataset(self.paths.iloc[val_cases], size=image_size)
+        self.test_data = CariesDataset(self.paths.iloc[test_cases], size=image_size)
         print('Train length:', len(self.train_data))
         print('Val length:', len(self.val_data))
         print('Test length:', len(self.test_data))

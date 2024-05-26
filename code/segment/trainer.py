@@ -3,19 +3,26 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torchvision
 from matplotlib import pyplot as plt
 from scipy.io import savemat
+from torch.nn import Conv2d
 
 import common.segformer as segformer
-from dataset import CariesDataModule
+from segment.dataset import CariesDataModule
 import torch.utils.data
 from common.fancy_unet import Unet as FancyUnet
 from common.path_util import segment_out_dir
 
 import torchmetrics
+import torch.nn.functional as F
 import lightning.pytorch as pl
 from scipy.spatial.distance import directed_hausdorff
 
+image_size = (384,384)
+
+def focal_loss(pred,gt):
+    return torchvision.ops.sigmoid_focal_loss(F.sigmoid(pred), gt, alpha=0.03, gamma=2).mean()
 
 class BaseModel(pl.LightningModule):
     """ Common settings for the two models """
@@ -26,11 +33,14 @@ class BaseModel(pl.LightningModule):
         self.internal = internal
 
         self.loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(30.0))
+        #self.loss_fn = focal_loss
+
         self.dice_score_fn = self.soft_dice_score_fn
 
         self.dice_frequency = 32  # MUST be min accumulate_grad_batches and SHOULD be equal
 
-    def soft_dice_score_fn(self, pred, mask, eps=1e-7):
+    @staticmethod
+    def soft_dice_score_fn(pred, mask, eps=1e-7):
         """ Calculate soft dice score """
         pred = pred.view(-1)
         mask = mask.view(-1)
@@ -58,7 +68,8 @@ class BaseModel(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx):
         raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
+        flipped = torch.flip(img, [3])
+        input_ = torch.cat((img, flipped, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         pred = torch.sigmoid(pred_raw)
         return raw_img, pred, fancy_unet_pred, segformer_pred, img, mask
@@ -66,7 +77,8 @@ class BaseModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         """ Train, occasionally calculate metrics, occasionally show figures"""
         raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
+        flipped = torch.flip(img, [3])
+        input_ = torch.cat((img, flipped, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'train/loss', loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -84,7 +96,8 @@ class BaseModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """ Calculate metrics, show figures for 10 fixed images"""
         raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
+        flipped = torch.flip(img, [3])
+        input_ = torch.cat((img, flipped, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'val/loss', loss, on_epoch=True)
@@ -99,7 +112,8 @@ class BaseModel(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         """ Calculate metrics including custom metric, show figures for 10 fixed images"""
         raw_img, fancy_unet_pred, segformer_pred, img, mask = batch
-        input_ = torch.cat((img, fancy_unet_pred, segformer_pred), dim=1)
+        flipped = torch.flip(img, [3])
+        input_ = torch.cat((img, flipped, fancy_unet_pred, segformer_pred), dim=1)
         pred_raw = self(input_)
         loss = self.loss_fn(pred_raw, mask.float())
         self.log(f'test/loss', loss, on_epoch=True)
@@ -165,15 +179,16 @@ class FancyUNetModel(BaseModel):
 
     def __init__(self):
         super().__init__(FancyUnet(
-            in_channels=3,
+            in_channels=3 + 1,
             inter_channels=48,
             height=5,
             width=2,
-            class_num=1
+            class_num=1,
+            image_size=image_size,
         ))
 
         self.batch_size = 1
-        self.accumulate_grad_batches = 16
+        self.accumulate_grad_batches = 2
 
         self.name = 'fancy_unet'
 
@@ -189,7 +204,10 @@ class SegformerModel(BaseModel):
     """ Model and parameters for using segformer as backbone """
 
     def __init__(self):
-        super().__init__(segformer.get_model())
+        model = segformer.get_model()
+        model.segformer.encoder.patch_embeddings[0].proj = Conv2d(4, 64, kernel_size=(7, 7), stride=(4, 4), padding=(3, 3))
+
+        super().__init__(model)
 
         self.batch_size = 4
         self.accumulate_grad_batches = 4
@@ -202,7 +220,7 @@ class SegformerModel(BaseModel):
 
     def forward(self, x):
         x = self.internal(x)[0]
-        x = torch.functional.F.interpolate(x, size=(384, 384), mode='bilinear')  # TODO move var out
+        x = torch.functional.F.interpolate(x, size=image_size, mode='bilinear')  # TODO move var out
         return x
 
 
@@ -238,7 +256,7 @@ def main():
     else:
         model = Model()
 
-    dm = CariesDataModule(model.batch_size, 1)
+    dm = CariesDataModule(model.batch_size, 1, image_size=image_size)
 
     trainer = pl.Trainer(
         log_every_n_steps=1,  # optimizer steps!

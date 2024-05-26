@@ -45,10 +45,10 @@ class Unet(torch.nn.Module):
     Similar idea to https://ietresearch.onlinelibrary.wiley.com/doi/10.1049/iet-ipr.2019.1527
     """
 
-    def __init__(self, in_channels=1, inter_channels=32, height=4, width=2, class_num=3):
+    def __init__(self, in_channels=1, inter_channels=32, height=4, width=2, class_num=3, image_size=(384, 384)):
         super().__init__()
-        self.trans_d = torchvision.transforms.Resize((320, 320), antialias=True)
-        self.trans_u = torch.nn.UpsamplingBilinear2d((384, 384))
+        self.trans_d = torchvision.transforms.Resize(image_size, antialias=True)
+        self.trans_u = torch.nn.UpsamplingBilinear2d(image_size)
         self.height = height
         self.width = width
         self.start = StartBlock(in_channels, inter_channels)

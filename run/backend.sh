@@ -1,5 +1,4 @@
-
-source declare.sh
+source ./declare.sh
 
 docker run \
   --gpus all \
@@ -10,4 +9,4 @@ docker run \
   -v "${DATA_DIR}:/data" \
   -v "${OUT_DIR}:/out" \
   melytanulas:latest \
-  /bin/bash -c "tensorboard --logdir=/out --port=6006 --bind_all"
+  /bin/sh -c "/opt/conda/bin/python3 /code/backend/index.py --debug=true"

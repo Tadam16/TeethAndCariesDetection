@@ -10,3 +10,5 @@ transformers
 scipy
 pycocotools
 opencv-python
+flask
+pydicom
