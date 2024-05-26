@@ -6,3 +6,5 @@ Created by:
 - Bálint Gergő
 - Juhász Benedek
 - Tumay Ádám
+
+![image](https://github.com/Tadam16/TeethAndCariesDetection/assets/readme.png)
