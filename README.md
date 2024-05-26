@@ -7,4 +7,4 @@ Created by:
 - Juhász Benedek
 - Tumay Ádám
 
-![image](https://github.com/Tadam16/TeethAndCariesDetection/docs/fancy_unet_val_epoch41_batch4.png)
+![image](https://github.com/Tadam16/TeethAndCariesDetection/docs/fancy_unet_val_epoch41_batch4.png](https://github.com/Tadam16/TeethAndCariesDetection/blob/master/docs/fancy_unet_val_epoch41_batch4.png?raw=true)
